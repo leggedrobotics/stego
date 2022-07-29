@@ -4,6 +4,7 @@ from stego.src.utils import *
 import torch.nn.functional as F
 import stego.src.dino.vision_transformer as vits
 from torch import nn
+from typing import Tuple, List, Dict, Union, Any
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -16,14 +17,14 @@ class LambdaLayer(nn.Module):
 
 class DinoFeaturizer(nn.Module):
 
-    def __init__(self, dim, cfg):
+    def __init__(self, dim: int, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
-        self.dim = dim
-        patch_size = self.cfg.dino_patch_size
+        self.cfg: Dict[str, Any] = cfg
+        self.dim: int = dim
+        patch_size = self.cfg["dino_patch_size"]
         self.patch_size = patch_size
-        self.feat_type = self.cfg.dino_feat_type
-        arch = self.cfg.model_type
+        self.feat_type = self.cfg["dino_feat_type"]
+        arch = self.cfg["model_type"]
         self.model = vits.__dict__[arch](
             patch_size=patch_size,
             num_classes=0)
@@ -43,8 +44,8 @@ class DinoFeaturizer(nn.Module):
         else:
             raise ValueError("Unknown arch and patch size")
 
-        if cfg.pretrained_weights is not None:
-            state_dict = torch.load(cfg.pretrained_weights, map_location="cpu")
+        if cfg["pretrained_weights"] is not None:
+            state_dict = torch.load(cfg["pretrained_weights"], map_location="cpu")
             # state_dict = state_dict["teacher"]
             # remove `module.` prefix
             state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
@@ -55,7 +56,7 @@ class DinoFeaturizer(nn.Module):
             # state_dict = {k.replace("prototypes", "last_layer"): v for k, v in state_dict.items()}
 
             msg = self.model.load_state_dict(state_dict, strict=False)
-            print('Pretrained weights found at {} and loaded with msg: {}'.format(cfg.pretrained_weights, msg))
+            print('Pretrained weights found at {} and loaded with msg: {}'.format(cfg["pretrained_weights"], msg))
         else:
             print("Since no pretrained weights have been provided, we load the reference pretrained DINO weights.")
             state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
@@ -66,7 +67,7 @@ class DinoFeaturizer(nn.Module):
         else:
             self.n_feats = 768
         self.cluster1 = self.make_clusterer(self.n_feats)
-        self.proj_type = cfg.projection_type
+        self.proj_type = cfg["projection_type"]
         if self.proj_type == "nonlinear":
             self.cluster2 = self.make_nonlinear_clusterer(self.n_feats)
 
@@ -80,8 +81,8 @@ class DinoFeaturizer(nn.Module):
             torch.nn.ReLU(),
             torch.nn.Conv2d(in_channels, self.dim, (1, 1)))
 
-    def forward(self, img, n=1, return_class_feat=False):
-        self.model.eval()
+    def forward(self, img: torch.Tensor, n: int=1) -> Tuple[torch.Tensor, torch.Tensor]:
+        # self.model.eval()
         with torch.no_grad():
             assert (img.shape[2] % self.patch_size == 0)
             assert (img.shape[3] % self.patch_size == 0)
@@ -102,9 +103,6 @@ class DinoFeaturizer(nn.Module):
             else:
                 raise ValueError("Unknown feat type:{}".format(self.feat_type))
 
-            if return_class_feat:
-                return feat[:, :1, :].reshape(feat.shape[0], 1, 1, -1).permute(0, 3, 1, 2)
-
         if self.proj_type is not None:
             code = self.cluster1(self.dropout(image_feat))
             if self.proj_type == "nonlinear":
@@ -112,10 +110,11 @@ class DinoFeaturizer(nn.Module):
         else:
             code = image_feat
 
-        if self.cfg.dropout:
-            return self.dropout(image_feat), code
-        else:
-            return image_feat, code
+        return self.dropout(image_feat), code
+        # if self.cfg["dropout"]:
+        #     return self.dropout(image_feat), code
+        # else:
+        #     return image_feat, code
 
 
 class ResizeAndClassify(nn.Module):
@@ -327,19 +326,19 @@ class ContrastiveCorrelationLoss(nn.Module):
             # Comes straight from backbone which is currently frozen. this saves mem.
             fd = tensor_correlation(norm(f1), norm(f2))
 
-            if self.cfg.pointwise:
+            if self.cfg["pointwise"]:
                 old_mean = fd.mean()
                 fd -= fd.mean([3, 4], keepdim=True)
                 fd = fd - fd.mean() + old_mean
 
         cd = tensor_correlation(norm(c1), norm(c2))
 
-        if self.cfg.zero_clamp:
+        if self.cfg["zero_clamp"]:
             min_val = 0.0
         else:
             min_val = -9999.0
 
-        if self.cfg.stabalize:
+        if self.cfg["stabalize"]:
             loss = - cd.clamp(min_val, .8) * (fd - shift)
         else:
             loss = - cd.clamp(min_val) * (fd - shift)
@@ -352,9 +351,9 @@ class ContrastiveCorrelationLoss(nn.Module):
                 orig_code: torch.Tensor, orig_code_pos: torch.Tensor,
                 ):
 
-        coord_shape = [orig_feats.shape[0], self.cfg.feature_samples, self.cfg.feature_samples, 2]
+        coord_shape = [orig_feats.shape[0], self.cfg["feature_samples"], self.cfg["feature_samples"], 2]
 
-        if self.cfg.use_salience:
+        if self.cfg["use_salience"]:
             coords1_nonzero = sample_nonzero_locations(orig_salience, coord_shape)
             coords2_nonzero = sample_nonzero_locations(orig_salience_pos, coord_shape)
             coords1_reg = torch.rand(coord_shape, device=orig_feats.device) * 2 - 1
@@ -373,18 +372,18 @@ class ContrastiveCorrelationLoss(nn.Module):
         code_pos = sample(orig_code_pos, coords2)
 
         pos_intra_loss, pos_intra_cd = self.helper(
-            feats, feats, code, code, self.cfg.pos_intra_shift)
+            feats, feats, code, code, self.cfg["pos_intra_shift"])
         pos_inter_loss, pos_inter_cd = self.helper(
-            feats, feats_pos, code, code_pos, self.cfg.pos_inter_shift)
+            feats, feats_pos, code, code_pos, self.cfg["pos_inter_shift"])
 
         neg_losses = []
         neg_cds = []
-        for i in range(self.cfg.neg_samples):
+        for i in range(self.cfg["neg_samples"]):
             perm_neg = super_perm(orig_feats.shape[0], orig_feats.device)
             feats_neg = sample(orig_feats[perm_neg], coords2)
             code_neg = sample(orig_code[perm_neg], coords2)
             neg_inter_loss, neg_inter_cd = self.helper(
-                feats, feats_neg, code, code_neg, self.cfg.neg_inter_shift)
+                feats, feats_neg, code, code_neg, self.cfg["neg_inter_shift"])
             neg_losses.append(neg_inter_loss)
             neg_cds.append(neg_inter_cd)
         neg_inter_loss = torch.cat(neg_losses, axis=0)

@@ -21,6 +21,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 from stego.src.dino.utils import trunc_normal_
+from typing import Tuple, List
 
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
@@ -40,7 +41,7 @@ class DropPath(nn.Module):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return drop_path(x, self.drop_prob, self.training)
 
 
@@ -54,7 +55,7 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop(x)
@@ -75,7 +76,7 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, return_qkv=False):
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
@@ -87,7 +88,7 @@ class Attention(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x,attn, qkv
+        return x, attn, qkv
         
 
 
@@ -103,15 +104,13 @@ class Block(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x, return_attention=False, return_qkv = False):
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         y, attn, qkv = self.attn(self.norm1(x))
-        if return_attention:
-            return attn
+        # if return_attention:
+        #     return attn
         x = x + self.drop_path(y)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-        if return_qkv:
-            return x,attn, qkv
-        return x
+        return x, attn, qkv
 
 
 class PatchEmbed(nn.Module):
@@ -126,7 +125,7 @@ class PatchEmbed(nn.Module):
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
         x = self.proj(x).flatten(2).transpose(1, 2)
         return x
@@ -173,7 +172,7 @@ class VisionTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def interpolate_pos_encoding(self, x, w, h):
+    def interpolate_pos_encoding(self, x: torch.Tensor, w: int, h: int) -> torch.Tensor:
         npatch = x.shape[1] - 1
         N = self.pos_embed.shape[1] - 1
         if npatch == N and w == h:
@@ -195,12 +194,17 @@ class VisionTransformer(nn.Module):
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1)
 
-    def prepare_tokens(self, x):
+    def prepare_tokens(self, x: torch.Tensor) -> torch.Tensor:
+        # self.cls_token = self.cls_token.to(self.device)
+        # self.patch_embed = self.patch_embed.to(self.device)
+        # self.pos_embed = self.pos_embed.to(self.device)
+
         B, nc, w, h = x.shape
         x = self.patch_embed(x)  # patch linear embedding
 
         # add the [CLS] token to the embed patch tokens
-        cls_tokens = self.cls_token.expand(B, -1, -1)
+        tokens = torch.tensor(self.cls_token)
+        cls_tokens = tokens.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
 
         # add positional encoding to each token
@@ -208,49 +212,51 @@ class VisionTransformer(nn.Module):
 
         return self.pos_drop(x)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.prepare_tokens(x)
         for blk in self.blocks:
-            x = blk(x)
+            x, _, _ = blk(x)
         x = self.norm(x)
         return x[:, 0]
 
-    def forward_feats(self, x):
-        x = self.prepare_tokens(x)
-        for blk in self.blocks:
-            x = blk(x)
-        x = self.norm(x)
-        return x
+    # def forward_feats(self, x: torch.Tensor):
+    #     x = self.prepare_tokens(x)
+    #     for blk in self.blocks:
+    #         x = blk(x)
+    #     x = self.norm(x)
+    #     return x
 
-    def get_intermediate_feat(self, x, n=1):
+    def get_intermediate_feat(self, x: torch.Tensor, n: int =1) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         x = self.prepare_tokens(x)
         # we return the output tokens from the `n` last blocks
         feat = []
         attns = []
         qkvs = []
         for i, blk in enumerate(self.blocks):
-            x,attn,qkv = blk(x, return_qkv=True)
+            # x,attn,qkv = blk(x, return_qkv=True)
+            x, attn, qkv = blk(x)
             if len(self.blocks) - i <= n:
                 feat.append(self.norm(x))
                 qkvs.append(qkv)
                 attns.append(attn)
         return feat, attns, qkvs
 
-    def get_last_selfattention(self, x):
+    def get_last_selfattention(self, x: torch.Tensor) -> torch.Tensor:
         x = self.prepare_tokens(x)
         for i, blk in enumerate(self.blocks):
             if i < len(self.blocks) - 1:
-                x = blk(x)
+                x, _, _ = blk(x)
             else:
                 # return attention of the last block
-                return blk(x, return_attention=True)
+                _, att, _ = blk(x)
+                return att
 
-    def get_intermediate_layers(self, x, n=1):
+    def get_intermediate_layers(self, x: torch.Tensor, n: int=1) -> torch.Tensor:
         x = self.prepare_tokens(x)
         # we return the output tokens from the `n` last blocks
         output = []
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
+            x, _, _ = blk(x)
             if len(self.blocks) - i <= n:
                 output.append(self.norm(x))
         return output
@@ -263,7 +269,7 @@ def vit_tiny(patch_size=16, **kwargs):
     return model
 
 
-def vit_small(patch_size=16, **kwargs):
+def vit_small(patch_size: int=16, **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

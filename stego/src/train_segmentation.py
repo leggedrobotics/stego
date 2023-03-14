@@ -213,12 +213,12 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
 
         detached_code = torch.clone(code.detach())
 
-        linear_logits = self.linear_probe(detached_code)
-        linear_logits = F.interpolate(linear_logits, label.shape[-2:], mode='bilinear', align_corners=False)
-        linear_logits = linear_logits.permute(0, 2, 3, 1).reshape(-1, self.n_classes)
-        linear_loss = self.linear_probe_loss_fn(linear_logits[mask], flat_label[mask]).mean()
-        loss += linear_loss
-        self.log('loss/linear', linear_loss, **log_args)
+        # linear_logits = self.linear_probe(detached_code)
+        # linear_logits = F.interpolate(linear_logits, label.shape[-2:], mode='bilinear', align_corners=False)
+        # linear_logits = linear_logits.permute(0, 2, 3, 1).reshape(-1, self.n_classes)
+        # linear_loss = self.linear_probe_loss_fn(linear_logits[mask], flat_label[mask]).mean()
+        # loss += linear_loss
+        # self.log('loss/linear', linear_loss, **log_args)
 
         cluster_loss, cluster_probs = self.cluster_probe(detached_code, None)
         loss += cluster_loss
@@ -228,13 +228,13 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
         self.manual_backward(loss)
         net_optim.step()
         cluster_probe_optim.step()
-        linear_probe_optim.step()
+        # linear_probe_optim.step()
 
         if self.cfg.reset_probe_steps is not None and self.global_step == self.cfg.reset_probe_steps:
             print("RESETTING PROBES")
-            self.linear_probe.reset_parameters()
+            # self.linear_probe.reset_parameters()
             self.cluster_probe.reset_parameters()
-            self.trainer.optimizers[1] = torch.optim.Adam(list(self.linear_probe.parameters()), lr=5e-3)
+            # self.trainer.optimizers[1] = torch.optim.Adam(list(self.linear_probe.parameters()), lr=5e-3)
             self.trainer.optimizers[2] = torch.optim.Adam(list(self.cluster_probe.parameters()), lr=5e-3)
 
         if self.global_step % 2000 == 0 and self.global_step > 0:
@@ -242,7 +242,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
             # Make a new tfevent file
             self.logger.experiment.close()
             self.logger.experiment._get_file_writer()
-
+        self.log("training_loss", loss.item(), prog_bar=True)
         return loss
 
     def on_train_start(self):
@@ -267,6 +267,8 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
 
             cluster_loss, cluster_preds = self.cluster_probe(code, None)
             cluster_preds = cluster_preds.argmax(1)
+            
+            
             self.cluster_metrics.update(cluster_preds, label)
 
             return {
@@ -384,7 +386,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
         return net_optim, linear_probe_optim, cluster_probe_optim
 
 
-@hydra.main(config_path="configs", config_name="train_config.yml")
+@hydra.main(config_path="configs", config_name="train_forest_config.yml")
 def my_app(cfg: DictConfig) -> None:
     OmegaConf.set_struct(cfg, False)
     print(OmegaConf.to_yaml(cfg))

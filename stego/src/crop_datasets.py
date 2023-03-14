@@ -4,7 +4,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities.seed import seed_everything
 from torch.utils.data import DataLoader
-from torchvision.transforms.functional import five_crop, _get_image_size, crop
+from torchvision.transforms.functional import five_crop, crop #_get_image_size, crop
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
@@ -37,7 +37,7 @@ def _random_crops(img, size, seed, n):
 
     if len(size) != 2:
         raise ValueError("Please provide only two dimensions (h, w) for size.")
-
+    print(img.shape)
     image_width, image_height = _get_image_size(img)
     crop_height, crop_width = size
     if crop_width > image_width or crop_height > image_height:
@@ -119,15 +119,15 @@ class RandomCropComputer(Dataset):
             img_num = item * 5 + crop_num
             img_arr = img.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
             label_arr = (label + 1).unsqueeze(0).permute(1, 2, 0).to('cpu', torch.uint8).numpy().squeeze(-1)
-            Image.fromarray(img_arr).save(join(self.img_dir, "{}.jpg".format(img_num)), 'JPEG')
-            Image.fromarray(label_arr).save(join(self.label_dir, "{}.png".format(img_num)), 'PNG')
+            Image.fromarray(img_arr).resize((960,540)).save(join(self.img_dir, "{}.jpg".format(img_num)), 'JPEG')
+            Image.fromarray(label_arr).resize((960,540)).save(join(self.label_dir, "{}.png".format(img_num)), 'PNG')
         return True
 
     def __len__(self):
         return len(self.dataset)
 
 
-@hydra.main(config_path="configs", config_name="train_config.yml")
+@hydra.main(config_path="configs", config_name="train_forest_config.yml")
 def my_app(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
     seed_everything(seed=0, workers=True)
@@ -137,7 +137,7 @@ def my_app(cfg: DictConfig) -> None:
     # crop_types = ["five","random"]
     # crop_ratios = [.5, .7]
 
-    dataset_names = ["cityscapes"]
+    dataset_names = ["directory"]
     img_sets = ["train", "val"]
     crop_types = ["five"]
     crop_ratios = [.5]

@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 from torchvision.datasets.cityscapes import Cityscapes
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
-
+from pathlib import Path
 
 def bit_get(val, idx):
     """Gets the bit value.
@@ -71,7 +71,6 @@ def create_cityscapes_colormap():
               (0, 0, 0)]
     return np.array(colors)
 
-
 class DirectoryDataset(Dataset):
     def __init__(self, root, path, image_set, transform, target_transform):
         super(DirectoryDataset, self).__init__()
@@ -82,8 +81,8 @@ class DirectoryDataset(Dataset):
 
         self.transform = transform
         self.target_transform = target_transform
-
-        self.img_files = np.array(sorted(os.listdir(self.img_dir)))
+        self.img_files = np.array( [str(s) for s in Path( self.img_dir).rglob("*.jpg")] + [str(s) for s in Path( self.img_dir).rglob("*.png")]  )
+        # self.img_files = np.array(sorted(os.listdir(self.img_dir)))
         assert len(self.img_files) > 0
         if os.path.exists(join(self.dir, "labels")):
             self.label_files = np.array(sorted(os.listdir(self.label_dir)))
@@ -528,7 +527,7 @@ class ContrastiveSegDataset(Dataset):
 
         self._set_seed(seed)
         coord_entries = torch.meshgrid([torch.linspace(-1, 1, pack[0].shape[1]),
-                                        torch.linspace(-1, 1, pack[0].shape[2])])
+                                        torch.linspace(-1, 1, pack[0].shape[2])],  indexing="ij")
         coord = torch.cat([t.unsqueeze(0) for t in coord_entries], 0)
 
         if self.extra_transform is not None:

@@ -1,10 +1,10 @@
 output_root: '../'
-model_path: "../saved_models/cocostuff27_vit_base_5.ckpt"
-image_dir: "/datadrive/pytorch-data/cocostuff/images/val2017"
-experiment_name: "cocostuff_val"
+model_path: "/home/jonfrey/git/stego/stego/checkpoints/virtual_hike_cropped/directory_virtual_hike_cropped_date_Aug18_16-24-03/epoch=2-step=2400.ckpt"
+image_dir: "/home/jonfrey/Datasets/forest_youtube/virtual_hike/imgs/val"
+experiment_name: "virtual_hike_cropped"
 res: 320
 batch_size: 8
-num_workers: 24
+num_workers: 8
 use_ddp: False
 
 hydra:
